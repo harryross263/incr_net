@@ -1,0 +1,2 @@
+true: package(owl_neural,owl,core,incremental_kernel,oml,lacaml)
+true: thread
