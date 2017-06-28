@@ -3,8 +3,8 @@ open Import
 open Nn_matrix
 
 type network_vars = {
-  input_vars  : float Incr.Var.t Array.t;
-  target_vars : float Incr.Var.t Array.t;
+  input_vars  : Nn_matrix.t;
+  target_vars : Nn_matrix.t
 }
 
 let incr_relu = Incr.map ~f:(Float.max 0.)
@@ -14,23 +14,11 @@ let drelu = function
   | _ -> 1.
 ;;
 
-let present_next_example ~iter ~input_dim { input_vars; target_vars } =
-  let next_example = next_training_example ~iter ~input_dim in
-  (* We're constructing an autoencoder: inputs = outputs. *)
-  Array.iter2_exn input_vars next_example ~f:Incr.Var.set;
-  Array.iter2_exn target_vars next_example ~f:Incr.Var.set
-;;
-
 let setup_training_data ~input_dim =
   let iter = ref 0 in
-  let first_example = next_training_example ~iter ~input_dim in
-  (* [inputs] = [outputs] because we're considering the case of an autoencoder. *)
-  let network_vars = {
-    input_vars  = to_vars first_example;
-    target_vars = to_vars first_example
-  }
-  in
-  network_vars, iter
+  let input_vec = Nn_matrix.create `Incr_var ~dimx:input_dim () in
+  Nn_matrix.fill_in_place_next_training_example ~vec:input_vec ~iter;
+  input_vec, iter
 ;;
 
 let update_weights weights inputs eta deltas =
@@ -83,41 +71,23 @@ let () =
   let input_dim = 64 in
   let hidden_dim = 32 in
   let output_dim = input_dim in
-  let network_vars, iter = setup_training_data ~input_dim in
-  let { input_vars; target_vars } = network_vars in
-  let l1_weights_vars =
-    Array.make_matrix ~dimx:hidden_dim ~dimy:input_dim 1.
-    |> to_vars'
-  in
-  let l2_weights_vars =
-    Array.make_matrix ~dimx:output_dim ~dimy:hidden_dim 1.
-    |> to_vars'
-  in
-  let l1_weights = to_incrs' l1_weights_vars in
-  let l2_weights = to_incrs' l2_weights_vars in
-  let inputs = to_incrs input_vars in
+  let inputs, iter = setup_training_data ~input_dim in
+  let l1_weights = Nn_matrix.create `Float ~dimx:hidden_dim ~dimy:input_dim () in
+  let l2_weights = Nn_matrix.create `Float ~dimx:output_dim ~dimy:hidden_dim () in
   let hidden_activations =
-    apply_weights
-      ~inputs
-      ~weights:l1_weights
-      ~activation_fn:incr_relu
-      ()
+    Nn_matrix.mat_vec_mul
+      ~mat:l1_weights
+      ~vec:inputs
   in
   let y_pred =
-    apply_weights
-      ~inputs:hidden_activations
-      ~weights:l2_weights
-      ()
-    |> Array.map ~f:Incr.observe
+    Nn_matrix.mat_vec_mul
+      ~mat:l2_weights
+      ~vec:hidden_activations
   in
-  let hidden_activation_observers = Array.map hidden_activations ~f:Incr.observe in
   (* Train the network by simply presenting different inputs and targets. *)
   while !iter < 100000 do
-    present_next_example ~iter ~input_dim network_vars;
+    Nn_matrix.fill_in_place_next_training_example ~vec:input_vars ~iter
     Incr.stabilize ();
-    let hidden_activations = observer_value_exn hidden_activation_observers in
-    let pred = observer_value_exn y_pred in
-    let targets = Array.map target_vars ~f:Incr.Var.value in
     backprop
       ~pred
       ~targets
