@@ -14,24 +14,6 @@ let drelu = function
   | _ -> 1.
 ;;
 
-(* Returns an array containing the next training example.
- *
- * For this contrived example, we simple "snake" a line across
- * the image as the iterations increase.
- * *)
-let next_training_example ~iter ~input_dim =
-  incr iter;
-  let fill_line image =
-    let offset = !iter % input_dim in
-    let dim = sqrt (Int.to_float input_dim) |> Float.to_int in
-    for i = offset to Int.min ((Array.length image) - 1) (offset + dim) do
-      Array.set image i 2.;
-    done;
-    image
-  in
-  Array.create ~len:input_dim 0. |> fill_line
-;;
-
 let present_next_example ~iter ~input_dim { input_vars; target_vars } =
   let next_example = next_training_example ~iter ~input_dim in
   (* We're constructing an autoencoder: inputs = outputs. *)
@@ -49,21 +31,6 @@ let setup_training_data ~input_dim =
   }
   in
   network_vars, iter
-;;
-
-(* Takes a weights matrix and applies it to the input incrs. *)
-let apply_weights ~inputs ~weights ?activation_fn () =
-  let activation_fn =
-    match activation_fn with
-    | None -> Fn.id
-    | Some fn -> fn
-  in
-  Array.map weights ~f:(fun weight_vector ->
-      (* Calculate the individual components in the dot product. *)
-      Array.map2_exn weight_vector inputs ~f:(Incr.map2 ~f:( *.))
-      |> Incr.sum ~zero:0. ~add:(+.) ~sub:(-.) (* Sum the dot product. *)
-      |> activation_fn
-    )
 ;;
 
 let update_weights weights inputs eta deltas =
