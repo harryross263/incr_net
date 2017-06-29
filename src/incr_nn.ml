@@ -28,19 +28,21 @@ let () =
     Nn_matrix.relu
       ~vec:hidden_preactivations
   in
+  let graph = backprop :: graph in
   let y_pred, backprop =
     Nn_matrix.mat_vec_mul
       ~mat:(Nn_matrix.var_to_incrs l2_weights)
       ~vec:hidden_activations
   in
   let graph = backprop :: graph in
-  (* Train the network by simply presenting different inputs and targets. *)
+    (* Train the network by simply presenting different inputs and targets. *)
   while !iter < 100000 do
     Nn_matrix.fill_in_place_next_training_example ~vec:inputs ~iter;
     Incr.stabilize ();
     Graph.backprop graph;
+    Nn_matrix.update_and_reset [l1_weights; l2_weights];
     if phys_equal (!iter % 10) 0
     then
       Printf.printf "iter %d\n" !iter
-  done;
+    done;
 ;;

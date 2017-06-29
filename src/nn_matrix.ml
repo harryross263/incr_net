@@ -118,13 +118,13 @@ let mat_vec_mul_backprop ~mat ~out ?vec ?observers () =
         | None -> failwith "must specify observers"
         | Some observers -> observers
       in
-      for i = 0 to (Array.length mat_dw - 1) do
-        let column = Array.get mat_dw i in
+      for i = 0 to (Array.length mat_dw) - 1 do
+        let row = Array.get mat_dw i in
         let b = Array.get out_dw i in
-        for k = 0 to (Array.length column - 1) do
-          let cur_sum = Array.get column k in
+        for k = 0 to (Array.length row - 1) do
+          let cur_sum = Array.get row k in
           let observer_k = Array.get observers k |> Incr.Observer.value_exn in
-          Array.set column k (cur_sum +. observer_k *. b)
+          Array.set row k (cur_sum +. observer_k *. b)
         done
       done
     end
@@ -137,39 +137,30 @@ let relu_backprop ~vec ~out ?observers () =
     | Deriv_vector vec_dw, Deriv_vector out_dw -> vec_dw, out_dw
     | _, _ -> failwith "Derivatives must be in vector form."
   in
-  match vec.contents, out.contents with
-  | Float_vector _, Float_vector out ->
-    begin
-      let gradients = Array.map out ~f:(function
-          | 0. -> 0.
-          | _ -> 1.
-        )
-      in
-      Array.iteri vec_dw ~f:(fun i cur_sum ->
-          let prod = (Array.get gradients i) *. (Array.get out_dw i) in
-          Array.set vec_dw i (cur_sum +. prod)
-        )
-    end
-  | Incr_vector _, Incr_vector _ ->
-    begin
-      let observers =
-        match observers with
-        | None -> failwith "must specify observers"
-        | Some observers -> observers
-      in
-      let gradients = Array.map observers ~f:(fun observer ->
-          match Incr.Observer.value_exn observer with
-          | 0. -> 0.
-          | _ -> 1.
-        )
-      in
-      Array.iteri vec_dw ~f:(fun i cur_sum ->
-          let prod = (Array.get gradients i) *. (Array.get out_dw i) in
-          Array.set vec_dw i (cur_sum +. prod)
-        )
-    end
-  | _, _ -> failwith "Can't perform backprop (relu) for this matrix type"
-
+  let grads =
+    Array.map ~f:(function
+      | 0. -> 0.
+      | _ -> 1.
+    )
+  in
+  let vals_from_observers = function
+    | None -> failwith "must specify observers"
+    | Some observers -> Array.map observers ~f:Incr.Observer.value_exn
+  in
+  let propagate_grads grads =
+    Array.iteri vec_dw ~f:(fun i cur_sum ->
+        let prod = (Array.get grads i) *. (Array.get out_dw i) in
+        Array.set vec_dw i (cur_sum +. prod)
+      )
+  in
+  let vals =
+    match vec.contents, out.contents with
+    | Float_vector _, Float_vector out -> out
+    | Incr_vector _, Incr_vector _ -> vals_from_observers observers
+    | _, _ -> failwith "Can't perform backprop (relu) for this matrix type"
+  in
+  grads vals |> propagate_grads
+;;
 
 let relu ~vec =
   let f = Float.max 0. in
@@ -219,7 +210,7 @@ let mat_vec_mul ~mat ~vec =
   let out_t = {
     kind = vec.kind;
     contents;
-    derivative = Deriv_vector (Array.create ~len:(length vec) 0.)
+    derivative = Deriv_vector (Array.create ~len:(length mat) 0.)
   }
   in
   let vec, observers  =
@@ -256,3 +247,39 @@ let fill_in_place_next_training_example ~vec ~iter =
   | Incr_var_vector vec -> Array.iter2_exn vec raw_image ~f:Incr.Var.set
   | _ -> failwith "Can't fill input nn_matrix with next example"
 ;;
+
+let update_and_reset ~learning_rate =
+  List.iter ~f:(fun t ->
+      match t.contents, t.derivative with
+      | Float_vector vec, Deriv_vector dw ->
+        Array.iteri vec ~f:(fun i val_ ->
+            Array.set vec i (val_ +. learning_rate *. (Array.get dw i));
+            Array.set dw i 0.
+          )
+      | Float_matrix mat, Deriv_matrix dw ->
+        Array.iteri mat ~f:(fun i row ->
+            let dw_row = Array.get dw i in
+            Array.iteri row ~f:(fun j val_ ->
+                Array.set row j (val_ +. learning_rate *. (Array.get dw_row j));
+                Array.set dw_row j 0.
+              )
+          )
+      | Incr_var_vector vec, Deriv_vector dw  ->
+        Array.iteri vec ~f:(fun i var ->
+            let old_val = Incr.Var.value var in
+            Incr.Var.set var (old_val +. learning_rate *. (Array.get dw i));
+            Array.set dw i 0.
+          )
+      | Incr_var_matrix mat, Deriv_matrix dw ->
+        Array.iteri mat ~f:(fun i row ->
+            let dw_row = Array.get dw i in
+            Array.iteri row ~f:(fun j var ->
+                let old_val = Incr.Var.value var in
+                Incr.Var.set var (old_val +. learning_rate *. (Array.get dw_row j));
+                Array.set dw_row j 0.
+              )
+          )
+      | _ -> failwith "Can't update weights for incr matrices"
+    )
+;;
+
