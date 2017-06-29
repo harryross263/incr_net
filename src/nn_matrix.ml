@@ -1,7 +1,6 @@
 open Core.Std
 open Import
 
-(* CR hross: Need to change these to be optionally Incr.Var.t and Incr.t. *)
 type contents_kind =
   | Float_vector of float Array.t
   | Incr_vector of float Incr.t Array.t
