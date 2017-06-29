@@ -21,7 +21,7 @@ type t = {
 
 val create : [`Float | `Incr | `Incr_var] -> dimx:int -> ?dimy:int -> unit -> t
 
-val mat_vec_mul : mat:t -> vec:t -> t
+val mat_vec_mul : mat:t -> vec:t -> t * (unit -> unit)
 
 val fill_in_place_next_training_example : vec:t -> iter:int ref -> unit
 

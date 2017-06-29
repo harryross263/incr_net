@@ -51,6 +51,45 @@ let create kind ~dimx ?dimy () =
   }
 ;;
 
+let mat_vec_mul_backprop ~out ~mat ~vec () =
+  match mat.contents, vec.contents, out.contents with
+  | Float_matrix _, Float_vector vec, Float_vector _->
+    begin
+      let out_dw, mat_dw =
+        match out.derivative, mat.derivative with
+        | Deriv_vector vec_dw, Deriv_matrix mat_dw -> vec_dw, mat_dw
+        | _, _ -> failwith "unreachable"
+      in
+      for i = 0 to Array.length mat_dw do
+        let column = Array.get mat_dw i in
+        let b = Array.get out_dw i in
+        for k = 0 to Array.length column do
+          let cur_sum = Array.get column k in
+          let vec_k = Array.get vec k in
+          Array.set column k (cur_sum +. vec_k *. b)
+        done
+      done
+    end
+  | Incr_matrix _, Incr_vector vec, Incr_vector _ ->
+    begin
+      let out_dw, mat_dw =
+        match out.derivative, mat.derivative with
+        | Deriv_vector vec_dw, Deriv_matrix mat_dw -> vec_dw, mat_dw
+        | _, _ -> failwith "unreachable"
+      in
+      for i = 0 to Array.length mat_dw do
+        let column = Array.get mat_dw i in
+        let b = Array.get out_dw i in
+        for k = 0 to Array.length column do
+          let cur_sum = Array.get column k in
+          let vec_k = Array.get vec k |> Incr.observe |> Incr.Observer.value_exn in
+          Array.set column k (cur_sum +. vec_k *. b)
+        done
+      done
+    end
+  | _, _, _ -> failwith "Can't perform backprop for this matrix type"
+;;
+
 (* Takes a weights matrix and applies it to the input incrs. *)
 let mat_vec_mul ~mat ~vec =
   let float_dot_product vec1 vec2 =
@@ -79,10 +118,13 @@ let mat_vec_mul ~mat ~vec =
     | Incr_vector vec -> Array.length vec, `Incr
     | _ -> failwith "Matrix vector multiplication always produces a vector"
   in
-  { kind;
+  let out_t = {
+    kind;
     contents;
     derivative = Deriv_vector (Array.create ~len 0.)
   }
+  in
+  out_t, mat_vec_mul_backprop ~vec ~mat ~out:out_t
 ;;
 
 let length t =

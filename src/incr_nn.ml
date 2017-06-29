@@ -74,29 +74,25 @@ let () =
   let inputs, iter = setup_training_data ~input_dim in
   let l1_weights = Nn_matrix.create `Float ~dimx:hidden_dim ~dimy:input_dim () in
   let l2_weights = Nn_matrix.create `Float ~dimx:output_dim ~dimy:hidden_dim () in
-  let hidden_activations =
+  let graph = [] in
+  let hidden_activations, backprop =
     Nn_matrix.mat_vec_mul
       ~mat:l1_weights
       ~vec:inputs
   in
-  let y_pred =
+  let graph = backprop :: graph in
+  let y_pred, backprop =
     Nn_matrix.mat_vec_mul
       ~mat:l2_weights
       ~vec:hidden_activations
   in
+  let graph = backprop :: graph in
   (* Train the network by simply presenting different inputs and targets. *)
   while !iter < 100000 do
-    Nn_matrix.fill_in_place_next_training_example ~vec:input_vars ~iter
+    Nn_matrix.fill_in_place_next_training_example ~vec:inputs ~iter;
     Incr.stabilize ();
-    backprop
-      ~pred
-      ~targets
-      ~inputs:(Array.map input_vars ~f:Incr.Var.value)
-      ~hidden_activations
-      ~l1_weights_vars
-      ~l2_weights_vars
-      ~learning_rate;
+    Graph.backprop graph;
     if phys_equal (!iter % 10) 0
     then
-      Printf.printf "iter %d, SSE %f\n" !iter (sse pred targets)
+      Printf.printf "iter %d\n" !iter
   done;
