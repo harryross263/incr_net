@@ -125,11 +125,51 @@ let mat_vec_mul_backprop ~mat ~out ?vec ?observers () =
           let cur_sum = Array.get column k in
           let observer_k = Array.get observers k |> Incr.Observer.value_exn in
           Array.set column k (cur_sum +. observer_k *. b)
-          done
+        done
       done
     end
-  | _, _ -> failwith "Can't perform backprop for this matrix type"
+  | _, _ -> failwith "Can't perform backprop (matmul) for this matrix type"
 ;;
+
+let relu_backprop ~vec ~out ?observers () =
+  let vec_dw, out_dw =
+    match vec.derivative, out.derivative with
+    | Deriv_vector vec_dw, Deriv_vector out_dw -> vec_dw, out_dw
+    | _, _ -> failwith "Derivatives must be in vector form."
+  in
+  match vec.contents, out.contents with
+  | Float_vector _, Float_vector out ->
+    begin
+      let gradients = Array.map out ~f:(function
+          | 0. -> 0.
+          | _ -> 1.
+        )
+      in
+      Array.iteri vec_dw ~f:(fun i cur_sum ->
+          let prod = (Array.get gradients i) *. (Array.get out_dw i) in
+          Array.set vec_dw i (cur_sum +. prod)
+        )
+    end
+  | Incr_vector _, Incr_vector _ ->
+    begin
+      let observers =
+        match observers with
+        | None -> failwith "must specify observers"
+        | Some observers -> observers
+      in
+      let gradients = Array.map observers ~f:(fun observer ->
+          match Incr.Observer.value_exn observer with
+          | 0. -> 0.
+          | _ -> 1.
+        )
+      in
+      Array.iteri vec_dw ~f:(fun i cur_sum ->
+          let prod = (Array.get gradients i) *. (Array.get out_dw i) in
+          Array.set vec_dw i (cur_sum +. prod)
+        )
+    end
+  | _, _ -> failwith "Can't perform backprop (relu) for this matrix type"
+
 
 let relu ~vec =
   let f = Float.max 0. in
@@ -146,7 +186,12 @@ let relu ~vec =
       derivative = Deriv_vector (Array.create ~len:(length vec) 0.)
     }
   in
-  out_t
+  let observers =
+    match out_t.contents with
+    | Float_vector _ -> None
+    | Incr_vector vec -> Some (Array.map vec ~f:Incr.observe)
+  in
+  out_t, relu_backprop ~vec ~out:out_t ?observers
 ;;
 
 (* Takes a weights matrix and applies it to the input incrs. *)

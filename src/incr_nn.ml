@@ -2,13 +2,6 @@ open Core.Std
 open Import
 open Nn_matrix
 
-let incr_relu = Incr.map ~f:(Float.max 0.)
-
-let drelu = function
-  | 0. -> 0.
-  | _ -> 1.
-;;
-
 let setup_training_data ~input_dim =
   let iter = ref 0 in
   let inputs = Nn_matrix.create `Incr_var ~dimx:input_dim () in
@@ -25,12 +18,16 @@ let () =
   let l1_weights = Nn_matrix.create `Incr_var ~dimx:hidden_dim ~dimy:input_dim () in
   let l2_weights = Nn_matrix.create `Incr_var ~dimx:output_dim ~dimy:hidden_dim () in
   let graph = [] in
-  let hidden_activations, backprop =
+  let hidden_preactivations, backprop =
     Nn_matrix.mat_vec_mul
       ~mat:(Nn_matrix.var_to_incrs l1_weights)
       ~vec:(Nn_matrix.var_to_incrs inputs)
   in
   let graph = backprop :: graph in
+  let hidden_activations, backprop =
+    Nn_matrix.relu
+      ~vec:hidden_preactivations
+  in
   let y_pred, backprop =
     Nn_matrix.mat_vec_mul
       ~mat:(Nn_matrix.var_to_incrs l2_weights)
