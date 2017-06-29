@@ -247,35 +247,42 @@ let fill_in_place_next_training_example ~vec ~iter =
   | _ -> failwith "Can't fill input nn_matrix with next example"
 ;;
 
-let update_and_reset ~learning_rate =
-  List.iter ~f:(fun t ->
+let update_and_reset ~learning_rate matrices =
+  let set_var var dw =
+    let old_val = Incr.Var.value var in
+    Incr.Var.set var (old_val +. learning_rate *. dw)
+  in
+  let set_elt arr i dw =
+    let old_val = Array.get arr i in
+    Array.set arr i (old_val +. learning_rate *. dw)
+  in
+  let set_zero arr i = Array.set arr i 0. in
+  List.iter matrices ~f:(fun t ->
       match t.contents, t.derivative with
       | Float_vector vec, Deriv_vector dw ->
         Array.iteri vec ~f:(fun i val_ ->
-            Array.set vec i (val_ +. learning_rate *. (Array.get dw i));
-            Array.set dw i 0.
+            set_elt vec i (Array.get dw i);
+            set_zero dw i
           )
       | Float_matrix mat, Deriv_matrix dw ->
         Array.iteri mat ~f:(fun i row ->
             let dw_row = Array.get dw i in
             Array.iteri row ~f:(fun j val_ ->
-                Array.set row j (val_ +. learning_rate *. (Array.get dw_row j));
-                Array.set dw_row j 0.
+                set_elt row j (Array.get dw_row j);
+                set_zero dw_row j
               )
           )
       | Incr_var_vector vec, Deriv_vector dw  ->
         Array.iteri vec ~f:(fun i var ->
-            let old_val = Incr.Var.value var in
-            Incr.Var.set var (old_val +. learning_rate *. (Array.get dw i));
-            Array.set dw i 0.
+            set_var var (Array.get dw i);
+            set_zero dw i
           )
       | Incr_var_matrix mat, Deriv_matrix dw ->
         Array.iteri mat ~f:(fun i row ->
             let dw_row = Array.get dw i in
             Array.iteri row ~f:(fun j var ->
-                let old_val = Incr.Var.value var in
-                Incr.Var.set var (old_val +. learning_rate *. (Array.get dw_row j));
-                Array.set dw_row j 0.
+                set_var var (Array.get dw_row j);
+                set_zero dw_row j
               )
           )
       | _ -> failwith "Can't update weights for incr matrices"
