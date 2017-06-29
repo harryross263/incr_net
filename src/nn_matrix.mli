@@ -25,4 +25,4 @@ val mat_vec_mul : mat:t -> vec:t -> t * (unit -> unit)
 
 val fill_in_place_next_training_example : vec:t -> iter:int ref -> unit
 
-val get_observers : vec:t -> float Incr.Observer.t Array.t
+val var_to_incrs : t -> t

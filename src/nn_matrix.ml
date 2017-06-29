@@ -20,6 +20,37 @@ type t = {
   derivative : derivative_kind
 } [@@deriving fields]
 
+let var_to_incrs t =
+  let contents =
+    match t.contents with
+    | Incr_var_vector vec -> Incr_vector (to_incrs vec)
+    | Incr_var_matrix mat -> Incr_matrix (to_incrs' mat)
+  in
+  { kind = t.kind;
+    contents;
+    derivative = t.derivative
+  }
+;;
+
+let length t =
+  match t.contents with
+  | Float_vector vec -> Array.length vec
+  | Incr_vector vec -> Array.length vec
+  | Incr_var_vector vec -> Array.length vec
+  | Float_matrix mat -> Array.length mat
+  | Incr_matrix mat -> Array.length mat
+  | Incr_var_matrix mat -> Array.length mat
+;;
+
+let length' t =
+  match t.contents with
+  | Float_matrix mat -> Array.length (Array.get mat 0)
+  | Incr_matrix mat -> Array.length (Array.get mat 0)
+  | Incr_var_matrix mat -> Array.length (Array.get mat 0)
+  | _ -> failwith "Input not a matrix"
+;;
+
+
 (* CR hross: Randomly initialise matrix entries. *)
 let create kind ~dimx ?dimy () =
   let contents, derivative =
@@ -51,14 +82,24 @@ let create kind ~dimx ?dimy () =
   }
 ;;
 
-let mat_vec_mul_backprop ~out ~mat ~vec () =
-  match mat.contents, vec.contents, out.contents with
-  | Float_matrix _, Float_vector vec, Float_vector _->
+let mat_vec_mul_backprop ~mat ~out ?vec ?observers () =
+  let out_dw, mat_dw =
+    match out.derivative, mat.derivative with
+    | Deriv_vector vec_dw, Deriv_matrix mat_dw -> vec_dw, mat_dw
+    | _, _ -> failwith "unreachable"
+  in
+  match mat.contents, out.contents with
+  | Float_matrix _, Float_vector _->
     begin
-      let out_dw, mat_dw =
-        match out.derivative, mat.derivative with
-        | Deriv_vector vec_dw, Deriv_matrix mat_dw -> vec_dw, mat_dw
-        | _, _ -> failwith "unreachable"
+      let vec =
+        match vec with
+        | Some vec ->
+          begin
+            match vec.contents with
+            | Float_vector vec -> vec
+            | _ -> failwith "blah"
+          end
+        | _ -> failwith "Failed to match vector"
       in
       for i = 0 to Array.length mat_dw do
         let column = Array.get mat_dw i in
@@ -70,24 +111,42 @@ let mat_vec_mul_backprop ~out ~mat ~vec () =
         done
       done
     end
-  | Incr_matrix _, Incr_vector vec, Incr_vector _ ->
+  | Incr_matrix _, Incr_vector _ ->
     begin
-      let out_dw, mat_dw =
-        match out.derivative, mat.derivative with
-        | Deriv_vector vec_dw, Deriv_matrix mat_dw -> vec_dw, mat_dw
-        | _, _ -> failwith "unreachable"
+      let observers =
+        match observers with
+        | None -> failwith "must specify observers"
+        | Some observers -> observers
       in
-      for i = 0 to Array.length mat_dw do
+      for i = 0 to (Array.length mat_dw - 1) do
         let column = Array.get mat_dw i in
         let b = Array.get out_dw i in
-        for k = 0 to Array.length column do
+        for k = 0 to (Array.length column - 1) do
           let cur_sum = Array.get column k in
-          let vec_k = Array.get vec k |> Incr.observe |> Incr.Observer.value_exn in
-          Array.set column k (cur_sum +. vec_k *. b)
-        done
+          let observer_k = Array.get observers k |> Incr.Observer.value_exn in
+          Array.set column k (cur_sum +. observer_k *. b)
+          done
       done
     end
-  | _, _, _ -> failwith "Can't perform backprop for this matrix type"
+  | _, _ -> failwith "Can't perform backprop for this matrix type"
+;;
+
+let relu ~vec =
+  let f = Float.max 0. in
+  let float_relu = Array.map ~f in
+  let incr_relu = Array.map ~f:(Incr.map ~f) in
+  let contents =
+    match vec.contents with
+    | Float_vector vec -> Float_vector (float_relu vec)
+    | Incr_vector vec -> Incr_vector (incr_relu vec)
+  in
+  let out_t =
+    { kind = vec.kind;
+      contents;
+      derivative = Deriv_vector (Array.create ~len:(length vec) 0.)
+    }
+  in
+  out_t
 ;;
 
 (* Takes a weights matrix and applies it to the input incrs. *)
@@ -112,37 +171,18 @@ let mat_vec_mul ~mat ~vec =
     | Incr_matrix mat, Incr_vector vec -> Incr_vector (incr_matmul mat vec)
     | _, _ -> failwith "Cannot multiply nn_matrices of different types (or nn var matrices)"
   in
-  let len, kind =
-    match contents with
-    | Float_vector vec -> Array.length vec, `Float
-    | Incr_vector vec -> Array.length vec, `Incr
-    | _ -> failwith "Matrix vector multiplication always produces a vector"
-  in
   let out_t = {
-    kind;
+    kind = vec.kind;
     contents;
-    derivative = Deriv_vector (Array.create ~len 0.)
+    derivative = Deriv_vector (Array.create ~len:(length vec) 0.)
   }
   in
-  out_t, mat_vec_mul_backprop ~vec ~mat ~out:out_t
-;;
-
-let length t =
-  match t.contents with
-  | Float_vector vec -> Array.length vec
-  | Incr_vector vec -> Array.length vec
-  | Incr_var_vector vec -> Array.length vec
-  | Float_matrix mat -> Array.length mat
-  | Incr_matrix mat -> Array.length mat
-  | Incr_var_matrix mat -> Array.length mat
-;;
-
-let length' t =
-  match t.contents with
-  | Float_matrix mat -> Array.length (Array.get mat 0)
-  | Incr_matrix mat -> Array.length (Array.get mat 0)
-  | Incr_var_matrix mat -> Array.length (Array.get mat 0)
-  | _ -> failwith "Input not a matrix"
+  let vec, observers  =
+    match vec.contents with
+    | Float_vector _ -> Some vec, None
+    | Incr_vector vec -> None, Some (Array.map vec ~f:Incr.observe)
+  in
+  (out_t, mat_vec_mul_backprop ~mat ~out:out_t ?vec ?observers)
 ;;
 
 (* Returns an array containing the next training example.
@@ -170,11 +210,4 @@ let fill_in_place_next_training_example ~vec ~iter =
       Array.set vec i (Array.get raw_image i))
   | Incr_var_vector vec -> Array.iter2_exn vec raw_image ~f:Incr.Var.set
   | _ -> failwith "Can't fill input nn_matrix with next example"
-;;
-
-let get_observers ~vec =
-  match vec.contents with
-  | Incr_vector vec -> Array.map vec ~f:Incr.observe
-  | Incr_var_vector vec -> Array.map vec ~f:(fun var -> Incr.Var.watch var |> Incr.observe)
-  | _ -> failwith "Can't get observers for wrong type of nn matrix"
 ;;
