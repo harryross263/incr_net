@@ -49,21 +49,43 @@ let length' t =
   | _ -> failwith "Input not a matrix"
 ;;
 
+(* Box-Meuller transform. *)
+let random_gaussian () =
+  let log_u1 = (-2.) *. (log (Random.float 1.)) in
+  let u2 = (2. *. 3.14) *. (Random.float 1.) in
+  (sqrt log_u1) *. (cos u2)
+;;
+
+let random_vector ~(len : int) : float Array.t =
+  let arr = Array.create ~len 1. in
+  Array.iteri arr ~f:(fun i _ ->
+      Array.set arr i (random_gaussian ())
+    );
+  arr
+;;
+
+let random_matrix ~dimx ~dimy =
+  let mat = Array.make_matrix ~dimx ~dimy 1. in
+  Array.iteri mat ~f:(fun i _ ->
+      Array.set mat i (random_vector ~len:dimy)
+    );
+  mat
+;;
 
 (* CR hross: Randomly initialise matrix entries. *)
 let create kind ~dimx ?dimy () =
   let contents, derivative =
     let c, d =
       match dimx, dimy with
-      | _, None ->
+      | len, None ->
         begin
-          let contents = Float_vector (Array.create ~len:dimx 1.) in
-          let derivative = Deriv_vector (Array.create ~len:dimx 0.) in
+          let contents = Float_vector (random_vector ~len) in
+          let derivative = Deriv_vector (Array.create ~len 0.) in
           contents, derivative
         end
       | _, Some dimy ->
         begin
-          let contents = Float_matrix (Array.make_matrix ~dimx ~dimy 1.) in
+          let contents = Float_matrix (random_matrix ~dimx ~dimy) in
           let derivative = Deriv_matrix (Array.make_matrix ~dimx ~dimy 0.) in
           contents, derivative
         end
@@ -100,13 +122,13 @@ let mat_vec_mul_backprop ~mat ~out ?vec ?observers () =
           end
         | _ -> failwith "Failed to match vector"
       in
-      for i = 0 to Array.length mat_dw do
-        let column = Array.get mat_dw i in
+      for i = 0 to (Array.length mat_dw) - 1 do
+        let row = Array.get mat_dw i in
         let b = Array.get out_dw i in
-        for k = 0 to Array.length column do
-          let cur_sum = Array.get column k in
+        for k = 0 to (Array.length row - 1) do
+          let cur_sum = Array.get row k in
           let vec_k = Array.get vec k in
-          Array.set column k (cur_sum +. vec_k *. b)
+          Array.set row k (cur_sum +. vec_k *. b)
         done
       done
     end
@@ -230,10 +252,12 @@ let fill_in_place_next_training_example ~vec ~iter =
   let input_dim = length vec in
   let fill_line image =
     let offset = !iter % input_dim in
-    let dim = sqrt (Int.to_float input_dim) |> Float.to_int in
-    for i = offset to Int.min ((Array.length image) - 1) (offset + dim) do
-      Array.set image i 2.;
-    done;
+    let len =
+      let dim = sqrt (Int.to_float input_dim) |> Float.to_int in
+      let left = (Array.length image) - offset in
+      Int.min dim left
+    in
+    Array.fill image offset len 1.;
     image
   in
   let raw_image =
@@ -289,3 +313,4 @@ let update_and_reset ~learning_rate matrices =
     )
 ;;
 
+let contents t = t.contents

@@ -28,3 +28,4 @@ val update_and_reset : learning_rate:float -> t list -> unit
 val fill_in_place_next_training_example : vec:t -> iter:int ref -> unit
 
 val var_to_incrs : t -> t
+val contents : t -> contents_kind
