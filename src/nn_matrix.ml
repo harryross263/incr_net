@@ -72,7 +72,6 @@ let random_matrix ~dimx ~dimy =
   mat
 ;;
 
-(* CR hross: Randomly initialise matrix entries. *)
 let create kind ~dimx ?dimy () =
   let contents, derivative =
     let c, d =
