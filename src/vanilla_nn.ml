@@ -26,32 +26,46 @@ let () =
   let input_dim = 784 in
   let hidden_dim = 32 in
   let output_dim = input_dim in
-  let inputs, iter = setup_training_data ~input_dim in
+  let x, iter = setup_training_data ~input_dim in
   let l1_weights = Nn_matrix.create `Float ~dimx:hidden_dim ~dimy:input_dim () in
-  let l2_weights = Nn_matrix.create `Float ~dimx:output_dim ~dimy:hidden_dim () in
+  let l2_weights = Nn_matrix.create `Float ~dimx:hidden_dim ~dimy:hidden_dim () in
+  let l3_weights = Nn_matrix.create `Float ~dimx:hidden_dim ~dimy:hidden_dim () in
+  let out_weights = Nn_matrix.create `Float ~dimx:output_dim ~dimy:hidden_dim () in
   while !iter < 100000 do
-    Nn_matrix.fill_in_place_next_training_example ~vec:inputs ~iter;
-    let hidden_preactivations, hidden_pre_backprop =
+    Nn_matrix.fill_in_place_next_training_example ~vec:x ~iter;
+    let inputs, graph =
       Nn_matrix.mat_vec_mul
+        []
         ~mat:l1_weights
+        ~vec:x
+    in
+    let inputs, graph = Nn_matrix.relu graph ~vec:inputs in
+    let inputs, graph =
+      Nn_matrix.mat_vec_mul
+        graph
+        ~mat:l2_weights
         ~vec:inputs
     in
-    let hidden_activations, hidden_backprop =
-      Nn_matrix.relu
-        ~vec:hidden_preactivations
-    in
-    let y_pred, out_backprop =
+    let inputs, graph = Nn_matrix.relu graph ~vec:inputs in
+    let inputs, graph =
       Nn_matrix.mat_vec_mul
-        ~mat:l2_weights
-        ~vec:hidden_activations
+        graph
+        ~mat:l3_weights
+        ~vec:inputs
     in
-    let graph = [out_backprop; hidden_backprop; hidden_pre_backprop] in
+    let inputs, graph = Nn_matrix.relu graph ~vec:inputs in
+    let outputs, graph =
+      Nn_matrix.mat_vec_mul
+        graph
+        ~mat:out_weights
+        ~vec:inputs
+    in
     Graph.backprop graph;
-    Nn_matrix.update_and_reset [l1_weights; l2_weights];
+    Nn_matrix.update_and_reset [l1_weights; l2_weights; l3_weights; out_weights];
     if phys_equal (!iter % 10) 0
     then
       begin
-        Printf.printf "iter %d, sse: %f" !iter (sse ~pred:y_pred ~targets:inputs);
+        Printf.printf "iter %d, sse: %f" !iter (sse ~pred:outputs ~targets:x);
         print_newline () (* Flush stdout. *)
       end
   done

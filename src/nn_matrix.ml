@@ -182,7 +182,7 @@ let relu_backprop ~vec ~out ?observers () =
   grads vals |> propagate_grads
 ;;
 
-let relu ~vec =
+let relu graph ~vec =
   let f = Float.max 0. in
   let float_relu = Array.map ~f in
   let incr_relu = Array.map ~f:(Incr.map ~f) in
@@ -202,11 +202,12 @@ let relu ~vec =
     | Float_vector _ -> None
     | Incr_vector vec -> Some (Array.map vec ~f:Incr.observe)
   in
-  out_t, relu_backprop ~vec ~out:out_t ?observers
+  let backprop_fn = relu_backprop ~vec ~out:out_t ?observers in
+  out_t, backprop_fn :: graph
 ;;
 
 (* Takes a weights matrix and applies it to the input incrs. *)
-let mat_vec_mul ~mat ~vec =
+let mat_vec_mul graph ~mat ~vec =
   let float_dot_product vec1 vec2 =
     Array.map2_exn vec1 vec2 ~f:( *.)
     |> Array.fold ~init:0. ~f:(+.)
@@ -238,7 +239,8 @@ let mat_vec_mul ~mat ~vec =
     | Float_vector _ -> Some vec, None
     | Incr_vector vec -> None, Some (Array.map vec ~f:Incr.observe)
   in
-  (out_t, mat_vec_mul_backprop ~mat ~out:out_t ?vec ?observers)
+  let backprop_fn = mat_vec_mul_backprop ~mat ~out:out_t ?vec ?observers in
+  out_t, backprop_fn :: graph
 ;;
 
 (* Returns an array containing the next training example.
