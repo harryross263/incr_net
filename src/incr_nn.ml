@@ -26,28 +26,28 @@ let () =
   let hidden_dim = 32 in
   let output_dim = input_dim in
   let x, iter = setup_training_data ~input_dim in
-  let l1_weights = Nn_matrix.create `Incr_var ~dimx:hidden_dim ~dimy:input_dim () in
-  let l2_weights = Nn_matrix.create `Incr_var ~dimx:hidden_dim ~dimy:hidden_dim () in
-  let l3_weights = Nn_matrix.create `Incr_var ~dimx:hidden_dim ~dimy:hidden_dim () in
+  let w1 = Nn_matrix.create `Incr_var ~dimx:hidden_dim ~dimy:input_dim () in
+  let w2 = Nn_matrix.create `Incr_var ~dimx:hidden_dim ~dimy:hidden_dim () in
+  let w3 = Nn_matrix.create `Incr_var ~dimx:hidden_dim ~dimy:hidden_dim () in
   let out_weights = Nn_matrix.create `Incr_var ~dimx:output_dim ~dimy:hidden_dim () in
   let inputs, graph =
     Nn_matrix.mat_vec_mul
       []
-      ~mat:(Nn_matrix.var_to_incrs l1_weights)
+      ~mat:(Nn_matrix.var_to_incrs w1)
       ~vec:(Nn_matrix.var_to_incrs x)
   in
   let inputs, graph = Nn_matrix.relu graph ~vec:inputs in
   let inputs, graph =
     Nn_matrix.mat_vec_mul
       graph
-      ~mat:(Nn_matrix.var_to_incrs l2_weights)
+      ~mat:(Nn_matrix.var_to_incrs w2)
       ~vec:inputs
   in
   let inputs, graph = Nn_matrix.relu graph ~vec:inputs in
   let inputs, graph =
     Nn_matrix.mat_vec_mul
       graph
-      ~mat:(Nn_matrix.var_to_incrs l3_weights)
+      ~mat:(Nn_matrix.var_to_incrs w3)
       ~vec:inputs
   in
   let inputs, graph = Nn_matrix.relu graph ~vec:inputs in
@@ -67,7 +67,7 @@ let () =
     Nn_matrix.fill_in_place_next_training_example ~vec:x ~iter;
     Incr.stabilize ();
     Graph.backprop graph;
-    Nn_matrix.update_and_reset [l1_weights; l2_weights; l3_weights; out_weights];
+    Nn_matrix.update_and_reset [w1; w2; w3; out_weights];
     if phys_equal (!iter % 10) 0
     then
       begin
