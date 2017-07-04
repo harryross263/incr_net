@@ -1,6 +1,5 @@
 open Core.Std
 open Import
-open Nn_matrix
 
 let setup_training_data ~input_dim =
   let iter = ref 0 in
