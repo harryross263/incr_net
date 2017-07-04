@@ -185,7 +185,13 @@ let relu_backprop ~vec ~out ?observers () =
 let relu graph ~vec =
   let f = Float.max 0. in
   let float_relu = Array.map ~f in
-  let incr_relu = Array.map ~f:(Incr.map ~f) in
+  let incr_relu =
+    Array.map ~f:(fun incr ->
+        let out = Incr.map incr ~f in
+        Incr.set_cutoff out float_cutoff;
+        out
+      )
+  in
   let contents =
     match vec.contents with
     | Float_vector vec -> Float_vector (float_relu vec)
@@ -216,11 +222,19 @@ let mat_vec_mul graph ~mat ~vec =
     Array.map mat ~f:(float_dot_product vec)
   in
   let incr_dot_product vec1 vec2 =
-    Array.map2_exn vec1 vec2 ~f:(Incr.map2 ~f:( *.))
+    Array.map2_exn vec1 vec2 ~f:(fun elt1 elt2 ->
+        let out = Incr.map2 elt1 elt2 ~f:( *.) in
+        Incr.set_cutoff out float_cutoff;
+        out
+      )
     |> Incr.sum ~zero:0. ~add:(+.) ~sub:(-.)
   in
   let incr_matmul mat vec =
-    Array.map mat ~f:(incr_dot_product vec)
+    Array.map mat ~f:(fun mat_vec ->
+        let out = incr_dot_product vec mat_vec in
+        Incr.set_cutoff out float_cutoff;
+        out
+      )
   in
   let contents =
     match mat.contents, vec.contents with
